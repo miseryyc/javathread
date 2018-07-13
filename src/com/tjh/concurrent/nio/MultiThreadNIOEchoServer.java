@@ -39,16 +39,18 @@
      private Selector selector;
      private ExecutorService tp = Executors.newCachedThreadPool();
 
-     public static Map<Socket, Long> geym_time_stat = new HashMap<Socket, Long>();
+     private static Map<Socket, Long> geym_time_stat = new HashMap<>();
 
      class EchoClient {
+
          private LinkedList<ByteBuffer> outq;
 
          EchoClient() {
-             outq = new LinkedList<ByteBuffer>();
+             outq = new LinkedList<>();
          }
 
-         public LinkedList<ByteBuffer> getOutputQueue() {
+         //因为是多线程处理，所有需要将所有读数据线程的数据保存到队列中。
+         LinkedList<ByteBuffer> getOutputQueue() {
              return outq;
          }
 
@@ -58,10 +60,11 @@
      }
 
      class HandleMsg implements Runnable {
+
          SelectionKey sk;
          ByteBuffer bb;
 
-         public HandleMsg(SelectionKey sk, ByteBuffer bb) {
+         HandleMsg(SelectionKey sk, ByteBuffer bb) {
              super();
              this.sk = sk;
              this.bb = bb;
@@ -79,6 +82,7 @@
          }
      }
 
+     @SuppressWarnings("InfiniteLoopStatement")
      private void startServer() throws Exception {
          //创建Selector
          selector = SelectorProvider.provider().openSelector();
@@ -93,38 +97,62 @@
          // 注册感兴趣的事件，此处对accept事件感兴趣,将Selector和Channel绑定关联起来
          ssc.register(selector, SelectionKey.OP_ACCEPT);
          //无限循环监听
-         while(true){
-             //Select()阻塞的方式获取数据
+         while (true) {
              int num = selector.select();
+             System.out.println("有" + num + "个通道的数据准备好了。" + System.currentTimeMillis());
+             //如果没有准备好的Channel则直接进行下一次循环监听
+             if (num <= 0) {
+                 continue;
+             }
+             //根据Selector获取已经准备好的SelectKey集合
              Set readyKeys = selector.selectedKeys();
              Iterator i = readyKeys.iterator();
-             long e = 0;
+             long e;
+             //循环迭代每个SelectKey，一个SelectKey与一个Channel对应
              while (i.hasNext()) {
                  SelectionKey sk = (SelectionKey) i.next();
+                 //每次遍历之后都要删除，避免下次监听的时候重复遍历。这次准备好的Channel不删除，下次监听的时候还会获取得到。
                  i.remove();
+                 //判断acceptable表示客户端连接已经准备好了。
                  if (sk.isAcceptable()) {
+                     System.out.println("连接服务器成功");
+                     //处理accept事件
                      doAccept(sk);
-                 } else if (sk.isValid() && sk.isReadable()) {
+                 }
+                 //判断read事件，进行读数据。
+                 //每次向选择器注册通道时就会创建一个选择键。通过调用某个键的 cancel 方法、关闭其通道，或者通过关闭其选择器来取消 该键之前，
+                 // 它一直保持有效。取消某个键不会立即从其选择器中移除它；相反，会将该键添加到选择器的已取消键集，以便在下一次进行选择操作时移除它。
+                 // 可通过调用某个键的 isValid 方法来测试其有效性。
+                 else if (sk.isValid() && sk.isReadable()) {
+                     //Channel从客户端读取数据时的开始时间
                      if (!geym_time_stat.containsKey(((SocketChannel) sk
                          .channel()).socket())) {
                          geym_time_stat.put(
                              ((SocketChannel) sk.channel()).socket(),
                              System.currentTimeMillis());
                      }
+                     //进行读数据操作
                      doRead(sk);
-                 } else if (sk.isValid() && sk.isWritable()) {
+                 }
+                 //判断write事件，进行读数据。
+                 else if (sk.isValid() && sk.isWritable()) {
                      doWrite(sk);
+                     //将数据写入到channel中后的时间
                      e = System.currentTimeMillis();
                      long b = geym_time_stat.remove(((SocketChannel) sk
                          .channel()).socket());
                      System.out.println("spend:" + (e - b) + "ms");
+                     //整个服务端响应客户端的时间是从读channel读数据到写数据到channel这段期间花的时间
                  }
              }
          }
      }
 
+     /**
+      * 写数据到通道中
+      * @param sk SelectionKey
+      */
      private void doWrite(SelectionKey sk) {
-         // TODO Auto-generated method stub
          SocketChannel channel = (SocketChannel) sk.channel();
          EchoClient echoClient = (EchoClient) sk.attachment();
          LinkedList<ByteBuffer> outq = echoClient.getOutputQueue();
@@ -132,48 +160,49 @@
          try {
              int len = channel.write(bb);
              if (len == -1) {
-                 disconnect(sk);
+                 disconnect();
                  return;
              }
+             //如果数据队列中的数据写完了，则将数据从队列中移除
              if (bb.remaining() == 0) {
                  outq.removeLast();
              }
          } catch (Exception e) {
-             // TODO: handle exception
-             disconnect(sk);
+             disconnect();
          }
+         //如果所有的队列数据都没了，则经兴趣设置成读操作。
          if (outq.size() == 0) {
              sk.interestOps(SelectionKey.OP_READ);
          }
      }
 
+     /**
+      * 多线程从通道中读数据
+      * @param sk SelectionKey
+      */
      private void doRead(SelectionKey sk) {
-         // TODO Auto-generated method stub
          SocketChannel channel = (SocketChannel) sk.channel();
          ByteBuffer bb = ByteBuffer.allocate(8192);
          int len;
          try {
              len = channel.read(bb);
              if (len < 0) {
-                 disconnect(sk);
+                 disconnect();
                  return;
              }
          } catch (Exception e) {
-             // TODO: handle exception
-             disconnect(sk);
+             disconnect();
              return;
          }
          bb.flip();
          tp.execute(new HandleMsg(sk, bb));
      }
 
-     private void disconnect(SelectionKey sk) {
-         // TODO Auto-generated method stub
+     private void disconnect() {
          //省略略干关闭操作
      }
 
      private void doAccept(SelectionKey sk) {
-         // TODO Auto-generated method stub
          ServerSocketChannel server = (ServerSocketChannel) sk.channel();
          SocketChannel clientChannel;
          try {
@@ -187,19 +216,17 @@
              System.out.println("Accepted connection from "
                  + clientAddress.getHostAddress());
          } catch (Exception e) {
-             // TODO: handle exception
+            e.printStackTrace();
          }
      }
 
      public static void main(String[] args) {
-         // TODO Auto-generated method stub
          MultiThreadNIOEchoServer echoServer = new MultiThreadNIOEchoServer();
          try {
              echoServer.startServer();
          } catch (Exception e) {
-             // TODO: handle exception
+             e.printStackTrace();
          }
-
      }
 
  }
