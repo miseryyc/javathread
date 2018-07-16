@@ -102,6 +102,7 @@
          while (true) {
              System.out.println("开始阻塞等待。" + System.currentTimeMillis());
              int num = selector.select();
+             Thread.sleep(1000);
              System.out.println("有" + num + "个通道的数据准备好了。" + System.currentTimeMillis());
              //如果没有准备好的Channel则直接进行下一次循环监听
              if (num <= 0) {
