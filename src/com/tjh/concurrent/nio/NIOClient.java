@@ -11,6 +11,7 @@
  package com.tjh.concurrent.nio;
 
  import java.io.BufferedReader;
+ import java.io.IOException;
  import java.io.InputStreamReader;
  import java.io.PrintWriter;
  import java.net.InetSocketAddress;
@@ -26,28 +27,45 @@
  public class NIOClient {
 
      public static void main(String[] args) {
-         Socket client;
-         PrintWriter writer;
-         BufferedReader reader;
+         final Socket client;
+
          try {
              client = new Socket();
              System.out.println("开始连接服务端。" + System.currentTimeMillis());
              client.connect(new InetSocketAddress("localhost", 8000));
-             System.out.println("开始向服务端发送数据。" + System.currentTimeMillis());
-             writer = new PrintWriter(client.getOutputStream(), true);
-             writer.println("Hello EveryBody!");
-             writer.flush();
-             System.out.println("向服务端发送数据完毕。" + System.currentTimeMillis());
+             Thread[] threads = new Thread[3];
+             for (int i = 0; i < 3; i++) {
+                 threads[i] = new Thread(new Runnable() {
+                     @Override
+                     public void run() {
+                         PrintWriter writer;
+                         BufferedReader reader;
+                         try {
+                             System.out.println("开始向服务端发送数据。" + System.currentTimeMillis());
+                             writer = new PrintWriter(client.getOutputStream(), true);
+                             writer.println("Hello EveryBody!");
+                             writer.flush();
+                             System.out.println("向服务端发送数据完毕。" + System.currentTimeMillis());
 
-             System.out.println("从服务端获取数据。" + System.currentTimeMillis());
-             reader = new BufferedReader(new InputStreamReader(
-                 client.getInputStream()));
-             System.out.println("from server: " + reader.readLine());
-             System.out.println("从服务端获取数据完毕。" + System.currentTimeMillis());
+                             System.out.println("从服务端获取数据。" + System.currentTimeMillis());
+                             reader = new BufferedReader(new InputStreamReader(
+                                 client.getInputStream()));
+                             System.out.println("from server: " + reader.readLine());
+                             System.out.println("从服务端获取数据完毕。" + System.currentTimeMillis());
+                             writer.close();
+                             reader.close();
+                         } catch (IOException e) {
+                             e.printStackTrace();
+                         }
+                     }
+                 });
+                 threads[i].start();
+             }
+
+             for (int i = 0; i < 3; i++) {
+                 threads[i].join();
+             }
              client.close();
-             writer.close();
-             reader.close();
-
          } catch (Exception e) {
              e.printStackTrace();
          }
