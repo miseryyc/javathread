@@ -160,7 +160,7 @@
          try {
              int len = channel.write(bb);
              if (len == -1) {
-                 disconnect();
+                 disconnect(sk);
                  return;
              }
              //如果数据队列中的数据写完了，则将数据从队列中移除
@@ -168,7 +168,7 @@
                  outq.removeLast();
              }
          } catch (Exception e) {
-             disconnect();
+             disconnect(sk);
          }
          //如果所有的队列数据都没了，则经兴趣设置成读操作。
          if (outq.size() == 0) {
@@ -187,19 +187,20 @@
          try {
              len = channel.read(bb);
              if (len < 0) {
-                 disconnect();
+                 disconnect(sk);
                  return;
              }
          } catch (Exception e) {
-             disconnect();
+             disconnect(sk);
              return;
          }
          bb.flip();
          tp.execute(new HandleMsg(sk, bb));
      }
 
-     private void disconnect() {
-         //省略略干关闭操作
+     private void disconnect(SelectionKey sk) {
+         //此处用cancel方法取消SelectionKey， 否则会无限循环
+         sk.cancel();
      }
 
      private void doAccept(SelectionKey sk) {
